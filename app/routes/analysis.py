@@ -1,8 +1,9 @@
 """
-API Routes for Trading Analysis System - UPDATED
-Now supports trading styles, custom account sizes, and dynamic risk management
+Optimized API Routes - Memory efficient
+Includes garbage collection to free memory after requests
 """
 
+import gc
 from flask import Blueprint, jsonify, request
 from datetime import datetime
 from app.services import DataFetcher, TechnicalAnalysis, SignalEngine, RiskEngine
@@ -12,10 +13,10 @@ from app.config import Config
 analysis_bp = Blueprint('analysis', __name__, url_prefix='/api')
 
 # Initialize services (will be recreated per request with user parameters)
-# Global instances for basic operations
 fetcher = DataFetcher()
 analyzer = TechnicalAnalysis()
 engine = SignalEngine()
+
 
 # ============================================================================
 # HEALTH CHECK
@@ -37,72 +38,57 @@ def health():
 
 @analysis_bp.route('/trading-styles', methods=['GET'])
 def get_trading_styles():
-    """
-    Get all available trading styles
-    
-    Returns:
-        JSON with all trading styles and their properties
-    """
+    """Get all available trading styles"""
     risk_engine = RiskEngine()
     styles = risk_engine.get_all_trading_styles()
     
-    return jsonify({
+    response = jsonify({
         'trading_styles': styles,
         'default_style': 'day_trading',
         'timestamp': datetime.now().isoformat()
-    }), 200
+    })
+    
+    # Clean up memory
+    gc.collect()
+    return response, 200
 
 
 @analysis_bp.route('/trading-styles/<string:style>', methods=['GET'])
 def get_trading_style_info(style):
-    """
-    Get information about a specific trading style
-    
-    Args:
-        style: Trading style key (scalping, day_trading, swing_trading, position_trading)
-    
-    Returns:
-        JSON with style details
-    """
+    """Get information about a specific trading style"""
     risk_engine = RiskEngine()
     style_info = risk_engine.get_trading_style_info(style)
     
     if not style_info:
+        gc.collect()
         return jsonify({
             'error': f'Trading style "{style}" not found',
             'available_styles': ['scalping', 'day_trading', 'swing_trading', 'position_trading']
         }), 404
     
-    return jsonify({
+    response = jsonify({
         'style': style,
         'details': style_info,
         'timestamp': datetime.now().isoformat()
-    }), 200
+    })
+    
+    gc.collect()
+    return response, 200
 
 
 # ============================================================================
-# SIGNALS ENDPOINT - WITH TRADING STYLE & ACCOUNT SIZE
+# SIGNALS ENDPOINT - OPTIMIZED
 # ============================================================================
 
 @analysis_bp.route('/signals/<string:pair>/<string:timeframe>', methods=['GET'])
 def get_signal(pair, timeframe):
     """
-    Get trading signal for a forex pair
+    Get trading signal for a forex pair (OPTIMIZED - less memory)
     
     Query Parameters:
-        trading_style: One of ['scalping', 'day_trading', 'swing_trading', 'position_trading'] (default: day_trading)
+        trading_style: One of ['scalping', 'day_trading', 'swing_trading', 'position_trading']
         account_size: Account size in USD (default: 10000)
         risk_percentage: Risk per trade as percentage (default: 2.0)
-    
-    Args:
-        pair: Forex pair (e.g., EURUSD, GBPUSD, USDJPY)
-        timeframe: TradingView timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
-    
-    Returns:
-        JSON with signal, trading plan, and dynamic risk calculations
-    
-    Example:
-        GET /api/signals/EURUSD/1h?trading_style=swing_trading&account_size=50000&risk_percentage=2.5
     """
     
     try:
@@ -124,6 +110,7 @@ def get_signal(pair, timeframe):
         # Convert TradingView timeframe to yfinance format
         yf_timeframe = Config.TIMEFRAME_MAPPING.get(timeframe.lower())
         if not yf_timeframe:
+            gc.collect()
             return jsonify({
                 'error': f'Invalid timeframe: {timeframe}',
                 'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys())
@@ -131,13 +118,14 @@ def get_signal(pair, timeframe):
         
         # Validate trading style
         if trading_style not in Config.TRADING_STYLES:
+            gc.collect()
             return jsonify({
                 'error': f'Invalid trading style: {trading_style}',
                 'supported_styles': list(Config.TRADING_STYLES.keys())
             }), 400
         
-        # Fetch data
-        candles = fetcher.get_intraday_data(pair, yf_timeframe)
+        # Fetch data (OPTIMIZED: 250 candles, not 714)
+        candles = fetcher.get_intraday_data(pair, yf_timeframe, limit=250)
         
         # Analyze indicators
         indicators = analyzer.analyze(candles)
@@ -158,22 +146,15 @@ def get_signal(pair, timeframe):
         response = {
             'pair': pair,
             'timeframe': timeframe,
-            'display_timeframe': timeframe,  # Already in TradingView format
             'timestamp': datetime.now().isoformat(),
             'current_price': round(candles[-1].close, 6),
             'trading_style': {
                 'name': Config.TRADING_STYLES[trading_style]['name'],
                 'key': trading_style,
-                'description': Config.TRADING_STYLES[trading_style]['description'],
-            },
-            'account': {
-                'size': account_size,
-                'risk_percentage': risk_percentage,
             },
             'signal': {
                 'type': signal.signal_type,
                 'confidence': round(signal.confidence, 2),
-                'reasons': signal.reasons
             },
             'trading_plan': {
                 'entry': round(signal.entry_price, 6),
@@ -183,114 +164,34 @@ def get_signal(pair, timeframe):
                 'profit_pips': round(signal.profit_pips, 1),
                 'risk_reward_ratio': round(signal.risk_reward_ratio, 2),
                 'position_size_micro_lots': round(signal.position_size_micro_lots, 2),
-                'position_size_standard_lots': round(signal.position_size_micro_lots / 1000, 3),
             },
             'trade_validity': {
                 'valid': is_valid,
-                'message': 'Trade meets all quality criteria' if is_valid else 'Trade does not meet minimum standards'
             }
         }
+        
+        # Clean up memory before returning
+        del candles, indicators, signal, risk_engine
+        gc.collect()
         
         return jsonify(response), 200
     
     except ValueError as e:
-        return jsonify({
-            'error': str(e),
-            'pair': pair,
-            'timeframe': timeframe
-        }), 400
+        gc.collect()
+        return jsonify({'error': str(e), 'pair': pair, 'timeframe': timeframe}), 400
     except Exception as e:
-        return jsonify({
-            'error': f'Error generating signal: {str(e)}',
-            'pair': pair,
-            'timeframe': timeframe
-        }), 500
+        gc.collect()
+        return jsonify({'error': f'Error generating signal: {str(e)}'}), 500
 
 
 # ============================================================================
-# INDICATORS ENDPOINT
-# ============================================================================
-
-@analysis_bp.route('/indicators/<string:pair>/<string:timeframe>', methods=['GET'])
-def get_indicators(pair, timeframe):
-    """
-    Get all technical indicators for a forex pair
-    
-    Args:
-        pair: Forex pair (e.g., EURUSD)
-        timeframe: TradingView timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
-    
-    Returns:
-        JSON with all indicator values
-    """
-    
-    try:
-        pair = pair.upper()
-        
-        # Convert TradingView timeframe to yfinance format
-        yf_timeframe = Config.TIMEFRAME_MAPPING.get(timeframe.lower())
-        if not yf_timeframe:
-            return jsonify({
-                'error': f'Invalid timeframe: {timeframe}',
-                'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys())
-            }), 400
-        
-        # Fetch data
-        candles = fetcher.get_intraday_data(pair, yf_timeframe)
-        
-        # Analyze indicators
-        indicators = analyzer.analyze(candles)
-        
-        response = {
-            'pair': pair,
-            'timeframe': timeframe,
-            'timestamp': datetime.now().isoformat(),
-            'indicators': {
-                'rsi': round(indicators.rsi, 2) if indicators.rsi else None,
-                'macd': round(indicators.macd, 6) if indicators.macd else None,
-                'macd_signal': round(indicators.macd_signal, 6) if indicators.macd_signal else None,
-                'macd_histogram': round(indicators.macd_histogram, 6) if indicators.macd_histogram else None,
-                'ema_9': round(indicators.ema_short, 6) if indicators.ema_short else None,
-                'ema_21': round(indicators.ema_long, 6) if indicators.ema_long else None,
-                'sma_50': round(indicators.sma_short, 6) if indicators.sma_short else None,
-                'sma_200': round(indicators.sma_long, 6) if indicators.sma_long else None,
-                'atr': round(indicators.atr, 6) if indicators.atr else None
-            }
-        }
-        
-        return jsonify(response), 200
-    
-    except Exception as e:
-        return jsonify({
-            'error': f'Error fetching indicators: {str(e)}',
-            'pair': pair,
-            'timeframe': timeframe
-        }), 500
-
-
-# ============================================================================
-# COMPLETE ANALYSIS ENDPOINT - WITH TRADING STYLE & ACCOUNT SIZE
+# COMPLETE ANALYSIS ENDPOINT - OPTIMIZED
 # ============================================================================
 
 @analysis_bp.route('/analysis/<string:pair>/<string:timeframe>', methods=['GET'])
 def get_analysis(pair, timeframe):
     """
-    Get complete analysis: indicators + signal + risk management
-    
-    Query Parameters:
-        trading_style: One of ['scalping', 'day_trading', 'swing_trading', 'position_trading'] (default: day_trading)
-        account_size: Account size in USD (default: 10000)
-        risk_percentage: Risk per trade as percentage (default: 2.0)
-    
-    Args:
-        pair: Forex pair (e.g., EURUSD)
-        timeframe: TradingView timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
-    
-    Returns:
-        JSON with indicators, signal, and trading plan
-    
-    Example:
-        GET /api/analysis/EURUSD/1h?trading_style=swing_trading&account_size=50000
+    Get complete analysis (OPTIMIZED - less memory)
     """
     
     try:
@@ -312,6 +213,7 @@ def get_analysis(pair, timeframe):
         # Convert TradingView timeframe to yfinance format
         yf_timeframe = Config.TIMEFRAME_MAPPING.get(timeframe.lower())
         if not yf_timeframe:
+            gc.collect()
             return jsonify({
                 'error': f'Invalid timeframe: {timeframe}',
                 'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys())
@@ -319,13 +221,14 @@ def get_analysis(pair, timeframe):
         
         # Validate trading style
         if trading_style not in Config.TRADING_STYLES:
+            gc.collect()
             return jsonify({
                 'error': f'Invalid trading style: {trading_style}',
                 'supported_styles': list(Config.TRADING_STYLES.keys())
             }), 400
         
-        # Fetch data
-        candles = fetcher.get_intraday_data(pair, yf_timeframe)
+        # Fetch data (OPTIMIZED: 250 candles)
+        candles = fetcher.get_intraday_data(pair, yf_timeframe, limit=250)
         
         # Analyze indicators
         indicators = analyzer.analyze(candles)
@@ -346,7 +249,6 @@ def get_analysis(pair, timeframe):
         response = {
             'pair': pair,
             'timeframe': timeframe,
-            'display_timeframe': timeframe,
             'timestamp': datetime.now().isoformat(),
             'current_price': round(candles[-1].close, 6),
             'trading_style': {
@@ -390,44 +292,38 @@ def get_analysis(pair, timeframe):
             }
         }
         
+        # Clean up memory before returning
+        del candles, indicators, signal, risk_engine
+        gc.collect()
+        
         return jsonify(response), 200
     
     except Exception as e:
-        return jsonify({
-            'error': f'Error analyzing pair: {str(e)}',
-            'pair': pair,
-            'timeframe': timeframe
-        }), 500
+        gc.collect()
+        return jsonify({'error': f'Error analyzing pair: {str(e)}'}), 500
 
 
 # ============================================================================
-# SUPPORTED PAIRS & TIMEFRAMES ENDPOINT
+# SUPPORTED PAIRS ENDPOINT
 # ============================================================================
 
 @analysis_bp.route('/pairs', methods=['GET'])
 def get_pairs():
-    """
-    Get list of supported forex pairs and timeframes
+    """Get list of supported forex pairs and timeframes"""
     
-    Returns:
-        JSON with supported pairs and timeframes
-    """
-    
-    return jsonify({
+    response = jsonify({
         'supported_pairs': Config.FOREX_PAIRS,
         'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys()),
         'supported_trading_styles': list(Config.TRADING_STYLES.keys()),
         'default_account_size': Config.DEFAULT_ACCOUNT_SIZE,
         'default_risk_percentage': Config.DEFAULT_RISK_PERCENTAGE,
-    }), 200
+        'optimization': 'Using 250 candles per request (optimized for free tier)',
+    })
+    
+    gc.collect()
+    return response, 200
 
 
 def register_analysis_routes(app):
-    """
-    Register analysis routes with Flask app
-    
-    Usage:
-        from app.routes.analysis import register_analysis_routes
-        register_analysis_routes(app)
-    """
+    """Register analysis routes with Flask app"""
     app.register_blueprint(analysis_bp)
