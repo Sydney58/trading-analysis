@@ -77,15 +77,15 @@ class Config:
     
     # ========== TRADINGVIEW TIMEFRAME MAPPING ==========
     TIMEFRAME_MAPPING = {
-    '1m': '1m',      # Change from '1min'
-    '5m': '5m',      # Change from '5min'
-    '15m': '15m',    # Change from '15min'
-    '30m': '30m',    # Change from '30min'
-    '1h': '1h',      # Change from '60min'
-    '4h': '4h',      # Change from '240min'
-    '1d': '1d',      # This one is correct
-    '1w': '1wk',     # This one is correct
-    '1M': '1mo',     # This one is correct
+    '1m': '1m',      
+    '5m': '5m',      
+    '15m': '15m',    
+    '30m': '30m',    
+    '1h': '1h',      
+    '4h': '4h',      
+    '1d': '1d',      
+    '1w': '1wk',     
+    '1M': '1mo',     
     }
     
     # Reverse mapping for display
