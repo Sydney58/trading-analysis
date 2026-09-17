@@ -1,20 +1,21 @@
 """
-API Routes for Trading Analysis System
-Exposes signals, indicators, and analysis via HTTP endpoints
+API Routes for Trading Analysis System - UPDATED
+Now supports trading styles, custom account sizes, and dynamic risk management
 """
 
 from flask import Blueprint, jsonify, request
 from datetime import datetime
 from app.services import DataFetcher, TechnicalAnalysis, SignalEngine, RiskEngine
+from app.config import Config
 
 # Create a Blueprint for analysis routes
 analysis_bp = Blueprint('analysis', __name__, url_prefix='/api')
 
-# Initialize services
+# Initialize services (will be recreated per request with user parameters)
+# Global instances for basic operations
 fetcher = DataFetcher()
 analyzer = TechnicalAnalysis()
 engine = SignalEngine()
-risk_engine = RiskEngine()
 
 # ============================================================================
 # HEALTH CHECK
@@ -22,10 +23,7 @@ risk_engine = RiskEngine()
 
 @analysis_bp.route('/health', methods=['GET'])
 def health():
-    """
-    Health check endpoint
-    Returns: status and timestamp
-    """
+    """Health check endpoint"""
     return jsonify({
         'status': 'ok',
         'message': 'Trading analysis system is running',
@@ -34,7 +32,56 @@ def health():
 
 
 # ============================================================================
-# SIGNALS ENDPOINT
+# TRADING STYLES ENDPOINT
+# ============================================================================
+
+@analysis_bp.route('/trading-styles', methods=['GET'])
+def get_trading_styles():
+    """
+    Get all available trading styles
+    
+    Returns:
+        JSON with all trading styles and their properties
+    """
+    risk_engine = RiskEngine()
+    styles = risk_engine.get_all_trading_styles()
+    
+    return jsonify({
+        'trading_styles': styles,
+        'default_style': 'day_trading',
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+@analysis_bp.route('/trading-styles/<string:style>', methods=['GET'])
+def get_trading_style_info(style):
+    """
+    Get information about a specific trading style
+    
+    Args:
+        style: Trading style key (scalping, day_trading, swing_trading, position_trading)
+    
+    Returns:
+        JSON with style details
+    """
+    risk_engine = RiskEngine()
+    style_info = risk_engine.get_trading_style_info(style)
+    
+    if not style_info:
+        return jsonify({
+            'error': f'Trading style "{style}" not found',
+            'available_styles': ['scalping', 'day_trading', 'swing_trading', 'position_trading']
+        }), 404
+    
+    return jsonify({
+        'style': style,
+        'details': style_info,
+        'timestamp': datetime.now().isoformat()
+    }), 200
+
+
+# ============================================================================
+# SIGNALS ENDPOINT - WITH TRADING STYLE & ACCOUNT SIZE
 # ============================================================================
 
 @analysis_bp.route('/signals/<string:pair>/<string:timeframe>', methods=['GET'])
@@ -42,44 +89,55 @@ def get_signal(pair, timeframe):
     """
     Get trading signal for a forex pair
     
+    Query Parameters:
+        trading_style: One of ['scalping', 'day_trading', 'swing_trading', 'position_trading'] (default: day_trading)
+        account_size: Account size in USD (default: 10000)
+        risk_percentage: Risk per trade as percentage (default: 2.0)
+    
     Args:
         pair: Forex pair (e.g., EURUSD, GBPUSD, USDJPY)
-        timeframe: Timeframe (60min, 15min, etc)
+        timeframe: TradingView timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
     
     Returns:
-        JSON with signal type, confidence, entry, stop loss, take profit
+        JSON with signal, trading plan, and dynamic risk calculations
     
     Example:
-        GET /api/signals/EURUSD/60min
-        
-    Response:
-        {
-            "pair": "EURUSD",
-            "timeframe": "60min",
-            "signal": "LONG",
-            "confidence": 0.70,
-            "entry": 1.16023,
-            "stop_loss": 1.15697,
-            "take_profit": 1.16675,
-            "risk_reward_ratio": 2.00,
-            "reasons": [...],
-            "valid": true
-        }
+        GET /api/signals/EURUSD/1h?trading_style=swing_trading&account_size=50000&risk_percentage=2.5
     """
     
     try:
+        # Get query parameters
+        trading_style = request.args.get('trading_style', 'day_trading').lower()
+        try:
+            account_size = float(request.args.get('account_size', Config.DEFAULT_ACCOUNT_SIZE))
+        except ValueError:
+            account_size = Config.DEFAULT_ACCOUNT_SIZE
+        
+        try:
+            risk_percentage = float(request.args.get('risk_percentage', Config.DEFAULT_RISK_PERCENTAGE))
+        except ValueError:
+            risk_percentage = Config.DEFAULT_RISK_PERCENTAGE
+        
         # Validate inputs
         pair = pair.upper()
-        timeframe = timeframe.lower()
         
-        # Convert timeframe format (user might send "60min" or "1h")
-        if timeframe == "1h":
-            timeframe = "60min"
-        elif timeframe == "4h":
-            timeframe = "240min"
+        # Convert TradingView timeframe to yfinance format
+        yf_timeframe = Config.TIMEFRAME_MAPPING.get(timeframe.lower())
+        if not yf_timeframe:
+            return jsonify({
+                'error': f'Invalid timeframe: {timeframe}',
+                'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys())
+            }), 400
+        
+        # Validate trading style
+        if trading_style not in Config.TRADING_STYLES:
+            return jsonify({
+                'error': f'Invalid trading style: {trading_style}',
+                'supported_styles': list(Config.TRADING_STYLES.keys())
+            }), 400
         
         # Fetch data
-        candles = fetcher.get_intraday_data(pair, timeframe)
+        candles = fetcher.get_intraday_data(pair, yf_timeframe)
         
         # Analyze indicators
         indicators = analyzer.analyze(candles)
@@ -87,8 +145,11 @@ def get_signal(pair, timeframe):
         # Generate signal
         signal = engine.generate_signal(candles, indicators, pair, timeframe)
         
-        # Calculate risk
-        signal = risk_engine.calculate_risk(signal, candles, indicators.atr)
+        # Create risk engine with user parameters
+        risk_engine = RiskEngine(account_size=account_size, risk_percentage=risk_percentage)
+        
+        # Calculate risk with trading style
+        signal = risk_engine.calculate_risk(signal, candles, indicators.atr, trading_style=trading_style)
         
         # Check if trade is valid
         is_valid = risk_engine.validate_trade(signal)
@@ -97,19 +158,37 @@ def get_signal(pair, timeframe):
         response = {
             'pair': pair,
             'timeframe': timeframe,
+            'display_timeframe': timeframe,  # Already in TradingView format
             'timestamp': datetime.now().isoformat(),
-            'signal': signal.signal_type,
-            'confidence': round(signal.confidence, 2),
-            'entry': round(signal.entry_price, 6),
-            'stop_loss': round(signal.stop_loss, 6),
-            'take_profit': round(signal.take_profit, 6),
-            'risk_pips': round((signal.entry_price - signal.stop_loss) * 10000, 1) if signal.signal_type == "LONG" else round((signal.stop_loss - signal.entry_price) * 10000, 1),
-            'profit_pips': round((signal.take_profit - signal.entry_price) * 10000, 1) if signal.signal_type == "LONG" else round((signal.entry_price - signal.take_profit) * 10000, 1),
-            'risk_reward_ratio': round(signal.risk_reward_ratio, 2),
-            'position_size_micro_lots': round(risk_engine.get_position_size(signal), 2),
-            'reasons': signal.reasons,
-            'valid': is_valid,
-            'message': 'Trade is VALID' if is_valid else 'Trade does not meet quality criteria'
+            'current_price': round(candles[-1].close, 6),
+            'trading_style': {
+                'name': Config.TRADING_STYLES[trading_style]['name'],
+                'key': trading_style,
+                'description': Config.TRADING_STYLES[trading_style]['description'],
+            },
+            'account': {
+                'size': account_size,
+                'risk_percentage': risk_percentage,
+            },
+            'signal': {
+                'type': signal.signal_type,
+                'confidence': round(signal.confidence, 2),
+                'reasons': signal.reasons
+            },
+            'trading_plan': {
+                'entry': round(signal.entry_price, 6),
+                'stop_loss': round(signal.stop_loss, 6),
+                'take_profit': round(signal.take_profit, 6),
+                'risk_pips': round(signal.risk_pips, 1),
+                'profit_pips': round(signal.profit_pips, 1),
+                'risk_reward_ratio': round(signal.risk_reward_ratio, 2),
+                'position_size_micro_lots': round(signal.position_size_micro_lots, 2),
+                'position_size_standard_lots': round(signal.position_size_micro_lots / 1000, 3),
+            },
+            'trade_validity': {
+                'valid': is_valid,
+                'message': 'Trade meets all quality criteria' if is_valid else 'Trade does not meet minimum standards'
+            }
         }
         
         return jsonify(response), 200
@@ -139,35 +218,25 @@ def get_indicators(pair, timeframe):
     
     Args:
         pair: Forex pair (e.g., EURUSD)
-        timeframe: Timeframe (60min, 15min, etc)
+        timeframe: TradingView timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
     
     Returns:
         JSON with all indicator values
-    
-    Example:
-        GET /api/indicators/EURUSD/60min
-        
-    Response:
-        {
-            "pair": "EURUSD",
-            "timeframe": "60min",
-            "rsi": 45.46,
-            "macd": -0.000475,
-            "macd_signal": -0.000508,
-            "ema_9": 1.160271,
-            "ema_21": 1.160657,
-            "sma_50": 1.161933,
-            "sma_200": 1.161761,
-            "atr": 0.000884
-        }
     """
     
     try:
         pair = pair.upper()
-        timeframe = timeframe.lower()
+        
+        # Convert TradingView timeframe to yfinance format
+        yf_timeframe = Config.TIMEFRAME_MAPPING.get(timeframe.lower())
+        if not yf_timeframe:
+            return jsonify({
+                'error': f'Invalid timeframe: {timeframe}',
+                'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys())
+            }), 400
         
         # Fetch data
-        candles = fetcher.get_intraday_data(pair, timeframe)
+        candles = fetcher.get_intraday_data(pair, yf_timeframe)
         
         # Analyze indicators
         indicators = analyzer.analyze(candles)
@@ -200,7 +269,7 @@ def get_indicators(pair, timeframe):
 
 
 # ============================================================================
-# ANALYSIS ENDPOINT (Everything combined)
+# COMPLETE ANALYSIS ENDPOINT - WITH TRADING STYLE & ACCOUNT SIZE
 # ============================================================================
 
 @analysis_bp.route('/analysis/<string:pair>/<string:timeframe>', methods=['GET'])
@@ -208,23 +277,55 @@ def get_analysis(pair, timeframe):
     """
     Get complete analysis: indicators + signal + risk management
     
+    Query Parameters:
+        trading_style: One of ['scalping', 'day_trading', 'swing_trading', 'position_trading'] (default: day_trading)
+        account_size: Account size in USD (default: 10000)
+        risk_percentage: Risk per trade as percentage (default: 2.0)
+    
     Args:
         pair: Forex pair (e.g., EURUSD)
-        timeframe: Timeframe (60min, 15min, etc)
+        timeframe: TradingView timeframe (1m, 5m, 15m, 30m, 1h, 4h, 1d, 1w)
     
     Returns:
         JSON with indicators, signal, and trading plan
     
     Example:
-        GET /api/analysis/EURUSD/60min
+        GET /api/analysis/EURUSD/1h?trading_style=swing_trading&account_size=50000
     """
     
     try:
+        # Get query parameters
+        trading_style = request.args.get('trading_style', 'day_trading').lower()
+        try:
+            account_size = float(request.args.get('account_size', Config.DEFAULT_ACCOUNT_SIZE))
+        except ValueError:
+            account_size = Config.DEFAULT_ACCOUNT_SIZE
+        
+        try:
+            risk_percentage = float(request.args.get('risk_percentage', Config.DEFAULT_RISK_PERCENTAGE))
+        except ValueError:
+            risk_percentage = Config.DEFAULT_RISK_PERCENTAGE
+        
+        # Validate inputs
         pair = pair.upper()
-        timeframe = timeframe.lower()
+        
+        # Convert TradingView timeframe to yfinance format
+        yf_timeframe = Config.TIMEFRAME_MAPPING.get(timeframe.lower())
+        if not yf_timeframe:
+            return jsonify({
+                'error': f'Invalid timeframe: {timeframe}',
+                'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys())
+            }), 400
+        
+        # Validate trading style
+        if trading_style not in Config.TRADING_STYLES:
+            return jsonify({
+                'error': f'Invalid trading style: {trading_style}',
+                'supported_styles': list(Config.TRADING_STYLES.keys())
+            }), 400
         
         # Fetch data
-        candles = fetcher.get_intraday_data(pair, timeframe)
+        candles = fetcher.get_intraday_data(pair, yf_timeframe)
         
         # Analyze indicators
         indicators = analyzer.analyze(candles)
@@ -232,8 +333,11 @@ def get_analysis(pair, timeframe):
         # Generate signal
         signal = engine.generate_signal(candles, indicators, pair, timeframe)
         
-        # Calculate risk
-        signal = risk_engine.calculate_risk(signal, candles, indicators.atr)
+        # Create risk engine with user parameters
+        risk_engine = RiskEngine(account_size=account_size, risk_percentage=risk_percentage)
+        
+        # Calculate risk with trading style
+        signal = risk_engine.calculate_risk(signal, candles, indicators.atr, trading_style=trading_style)
         
         # Check validity
         is_valid = risk_engine.validate_trade(signal)
@@ -242,8 +346,19 @@ def get_analysis(pair, timeframe):
         response = {
             'pair': pair,
             'timeframe': timeframe,
+            'display_timeframe': timeframe,
             'timestamp': datetime.now().isoformat(),
             'current_price': round(candles[-1].close, 6),
+            'trading_style': {
+                'name': Config.TRADING_STYLES[trading_style]['name'],
+                'key': trading_style,
+                'description': Config.TRADING_STYLES[trading_style]['description'],
+            },
+            'account': {
+                'size': account_size,
+                'risk_percentage': risk_percentage,
+                'risk_amount_usd': round(account_size * (risk_percentage / 100), 2),
+            },
             'indicators': {
                 'rsi': round(indicators.rsi, 2),
                 'macd': round(indicators.macd, 6),
@@ -263,10 +378,11 @@ def get_analysis(pair, timeframe):
                 'entry': round(signal.entry_price, 6),
                 'stop_loss': round(signal.stop_loss, 6),
                 'take_profit': round(signal.take_profit, 6),
-                'risk_pips': round((signal.entry_price - signal.stop_loss) * 10000, 1) if signal.signal_type == "LONG" else round((signal.stop_loss - signal.entry_price) * 10000, 1),
-                'profit_pips': round((signal.take_profit - signal.entry_price) * 10000, 1) if signal.signal_type == "LONG" else round((signal.entry_price - signal.take_profit) * 10000, 1),
+                'risk_pips': round(signal.risk_pips, 1),
+                'profit_pips': round(signal.profit_pips, 1),
                 'risk_reward_ratio': round(signal.risk_reward_ratio, 2),
-                'position_size_micro_lots': round(risk_engine.get_position_size(signal), 2)
+                'position_size_micro_lots': round(signal.position_size_micro_lots, 2),
+                'position_size_standard_lots': round(signal.position_size_micro_lots / 1000, 3),
             },
             'trade_validity': {
                 'valid': is_valid,
@@ -285,24 +401,24 @@ def get_analysis(pair, timeframe):
 
 
 # ============================================================================
-# SUPPORTED PAIRS ENDPOINT
+# SUPPORTED PAIRS & TIMEFRAMES ENDPOINT
 # ============================================================================
 
 @analysis_bp.route('/pairs', methods=['GET'])
 def get_pairs():
     """
-    Get list of supported forex pairs
+    Get list of supported forex pairs and timeframes
     
     Returns:
         JSON with supported pairs and timeframes
     """
     
-    from app.config import Config
-    
     return jsonify({
         'supported_pairs': Config.FOREX_PAIRS,
-        'supported_timeframes': ['1min', '5min', '15min', '30min', '60min'],
-        'note': 'All pairs support all timeframes'
+        'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys()),
+        'supported_trading_styles': list(Config.TRADING_STYLES.keys()),
+        'default_account_size': Config.DEFAULT_ACCOUNT_SIZE,
+        'default_risk_percentage': Config.DEFAULT_RISK_PERCENTAGE,
     }), 200
 
 
