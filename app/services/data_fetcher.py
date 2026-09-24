@@ -1,8 +1,8 @@
 """
-Optimized Data Fetcher - Memory efficient and Fixed
 """
 
 import yfinance as yf
+import pandas as pd
 from app.models.candle import Candle
 
 
@@ -13,7 +13,6 @@ class DataFetcher:
     def get_intraday_data(self, symbol, timeframe, limit=250):
         """Fetch intraday candle data"""
         try:
-            # Convert symbol to yfinance format
             yf_symbol = f"{symbol}=X"
             
             print(f"Fetching {symbol} {timeframe} data from yfinance...")
@@ -26,31 +25,44 @@ class DataFetcher:
             df = df.tail(limit)
             
             candles = []
-            for idx, row in df.iterrows():
+            
+            # Properly iterate through DataFrame
+            for timestamp, row in df.iterrows():
                 try:
+                    # Access values correctly as scalars
+                    open_price = float(row['Open']) if pd.notna(row['Open']) else 0
+                    high_price = float(row['High']) if pd.notna(row['High']) else 0
+                    low_price = float(row['Low']) if pd.notna(row['Low']) else 0
+                    close_price = float(row['Close']) if pd.notna(row['Close']) else 0
+                    volume = float(row['Volume']) if pd.notna(row['Volume']) else 0
+                    
+                    # Remove timezone if exists
+                    if hasattr(timestamp, 'tz_localize'):
+                        timestamp = timestamp.tz_localize(None)
+                    
                     candle = Candle(
                         symbol=symbol,
-                        timestamp=idx.tz_localize(None),
-                        open=float(row['Open']),
-                        high=float(row['High']),
-                        low=float(row['Low']),
-                        close=float(row['Close']),
-                        volume=float(row['Volume']) if 'Volume' in row else 0,
+                        timestamp=timestamp,
+                        open=open_price,
+                        high=high_price,
+                        low=low_price,
+                        close=close_price,
+                        volume=volume,
                         timeframe=timeframe
                     )
                     candles.append(candle)
-                except (KeyError, TypeError, ValueError) as e:
-                    print(f"Warning: Could not parse row: {e}")
+                except Exception as e:
+                    print(f"Warning: Skipping row - {e}")
                     continue
             
             if not candles:
                 raise ValueError(f"No valid candles parsed for {symbol}")
             
-            print(f"Successfully fetched {len(candles)} candles for {symbol}")
+            print(f"✅ Successfully fetched {len(candles)} candles for {symbol}")
             return candles
         
         except Exception as e:
-            print(f"Error fetching data: {str(e)}")
+            print(f"❌ Error fetching data: {str(e)}")
             raise ValueError(f"No data returned for {symbol}")
     
     def get_daily_data(self, symbol, limit=250):
