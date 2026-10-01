@@ -1,4 +1,5 @@
 """
+Data Fetcher Service - Fetches forex price data from yfinance
 """
 
 import yfinance as yf
@@ -29,12 +30,12 @@ class DataFetcher:
             # Properly iterate through DataFrame
             for timestamp, row in df.iterrows():
                 try:
-                    # Access values correctly as scalars
-                    open_price = float(row['Open']) if pd.notna(row['Open']) else 0
-                    high_price = float(row['High']) if pd.notna(row['High']) else 0
-                    low_price = float(row['Low']) if pd.notna(row['Low']) else 0
-                    close_price = float(row['Close']) if pd.notna(row['Close']) else 0
-                    volume = float(row['Volume']) if pd.notna(row['Volume']) else 0
+                    # Convert to float directly - simpler and avoids Series ambiguity
+                    open_price = float(row['Open'])
+                    high_price = float(row['High'])
+                    low_price = float(row['Low'])
+                    close_price = float(row['Close'])
+                    volume = float(row['Volume'])
                     
                     # Remove timezone if exists
                     if hasattr(timestamp, 'tz_localize'):
@@ -51,7 +52,7 @@ class DataFetcher:
                         timeframe=timeframe
                     )
                     candles.append(candle)
-                except Exception as e:
+                except (ValueError, TypeError) as e:
                     print(f"Warning: Skipping row - {e}")
                     continue
             
@@ -63,7 +64,7 @@ class DataFetcher:
         
         except Exception as e:
             print(f"❌ Error fetching data: {str(e)}")
-            raise ValueError(f"No data returned for {symbol}")
+            raise ValueError(f"Failed to fetch data for {symbol}")
     
     def get_daily_data(self, symbol, limit=250):
         """Fetch daily candle data"""
