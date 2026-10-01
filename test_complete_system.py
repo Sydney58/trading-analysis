@@ -20,7 +20,7 @@ try:
     fetcher = DataFetcher()
     analyzer = TechnicalAnalysis()
     engine = SignalEngine()
-    risk_engine = RiskEngine(account_balance=10000)  # $10,000 account
+    risk_engine = RiskEngine(account_size=10000)  # $10,000 account
     print("✅ SUCCESS: All services initialized")
 except Exception as e:
     print(f"❌ FAILED: {e}")
@@ -28,7 +28,7 @@ except Exception as e:
 
 print("\n[3/6] Fetching EUR/USD market data...")
 try:
-    candles = fetcher.get_intraday_data("EURUSD", "60min")
+    candles = fetcher.get_intraday_data("EURUSD", "1h")
     print(f"✅ SUCCESS: Fetched {len(candles)} candles")
     
     # Show price range
@@ -51,7 +51,7 @@ except Exception as e:
 
 print("\n[5/6] Generating trading signal...")
 try:
-    signal = engine.generate_signal(candles, indicators, "EURUSD", "60min")
+    signal = engine.generate_signal(candles, indicators, "EURUSD", "1h")
     print(f"✅ SUCCESS: Signal generated")
     print(f"   Type: {signal.signal_type}")
     print(f"   Confidence: {signal.confidence * 100:.0f}%")

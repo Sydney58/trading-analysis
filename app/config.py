@@ -76,17 +76,32 @@ class Config:
     }
     
     # ========== TRADINGVIEW TIMEFRAME MAPPING ==========
+    # Keys are case-sensitive: '1m' = 1 minute, '1M' = 1 month.
+    # '4h' isn't a native yfinance interval; DataFetcher builds it from 1h candles.
     TIMEFRAME_MAPPING = {
-    '1m': '1m',      
-    '5m': '5m',      
-    '15m': '15m',    
-    '30m': '30m',    
-    '1h': '1h',      
-    '4h': '4h',      
-    '1d': '1d',      
-    '1w': '1wk',     
-    '1M': '1mo',     
+        '1m': '1m',
+        '5m': '5m',
+        '15m': '15m',
+        '30m': '30m',
+        '1h': '1h',
+        '4h': '4h',
+        '1d': '1d',
+        '1w': '1wk',
+        '1M': '1mo',
     }
+
+    @classmethod
+    def resolve_timeframe(cls, timeframe):
+        """Map a TradingView timeframe to a yfinance interval (None if unsupported).
+
+        Exact match first so '1M' (month) isn't confused with '1m' (minute),
+        then a case-insensitive fallback for inputs like '1H' or '4H'.
+        """
+        if not timeframe:
+            return None
+        if timeframe in cls.TIMEFRAME_MAPPING:
+            return cls.TIMEFRAME_MAPPING[timeframe]
+        return cls.TIMEFRAME_MAPPING.get(timeframe.lower())
     
     # Reverse mapping for display
     TIMEFRAME_DISPLAY = {

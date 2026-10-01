@@ -12,7 +12,7 @@ class Candle:
     low: float
     close: float
     volume: int
-    timeframe: str  # e.g., "1min", "5min", "15min", "60min"
+    timeframe: str  # e.g., "1m", "5m", "15m", "1h", "4h", "1d"
     
     def __repr__(self):
         return f"Candle({self.symbol} {self.timeframe} {self.timestamp}: O={self.open} H={self.high} L={self.low} C={self.close})"

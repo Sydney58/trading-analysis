@@ -27,7 +27,7 @@ except Exception as e:
 print("\nStep 3: Fetch forex data")
 try:
     print("Fetching 714 candles of EUR/USD...")
-    candles = fetcher.get_intraday_data("EURUSD", "60min")
+    candles = fetcher.get_intraday_data("EURUSD", "1h")
     print(f"SUCCESS: Got {len(candles)} candles")
 except Exception as e:
     print(f"FAILED: {e}")

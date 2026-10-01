@@ -108,7 +108,7 @@ def get_signal(pair, timeframe):
         pair = pair.upper()
         
         # Convert TradingView timeframe to yfinance format
-        yf_timeframe = Config.TIMEFRAME_MAPPING.get(timeframe.lower())
+        yf_timeframe = Config.resolve_timeframe(timeframe)
         if not yf_timeframe:
             gc.collect()
             return jsonify({
@@ -211,7 +211,7 @@ def get_analysis(pair, timeframe):
         pair = pair.upper()
         
         # Convert TradingView timeframe to yfinance format
-        yf_timeframe = Config.TIMEFRAME_MAPPING.get(timeframe.lower())
+        yf_timeframe = Config.resolve_timeframe(timeframe)
         if not yf_timeframe:
             gc.collect()
             return jsonify({

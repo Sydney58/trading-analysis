@@ -27,7 +27,7 @@ except Exception as e:
 
 print("\nStep 3: Fetch forex data (714 candles)")
 try:
-    candles = fetcher.get_intraday_data("EURUSD", "60min")
+    candles = fetcher.get_intraday_data("EURUSD", "1h")
     print(f"SUCCESS: Got {len(candles)} candles")
 except Exception as e:
     print(f"FAILED: {e}")
@@ -43,7 +43,7 @@ except Exception as e:
 
 print("\nStep 5: Generate trading signal")
 try:
-    signal = engine.generate_signal(candles, indicators, "EURUSD", "60min")
+    signal = engine.generate_signal(candles, indicators, "EURUSD", "1h")
     print("SUCCESS: Generated trading signal")
 except Exception as e:
     print(f"FAILED: {e}")

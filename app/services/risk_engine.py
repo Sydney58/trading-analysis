@@ -74,7 +74,17 @@ class RiskEngine:
             take_profit = entry_price - (atr * style_config['tp_multiplier'])
             profit_pips = (entry_price - take_profit) * 10000
             
-        else:  # WAIT
+        else:  # WAIT - no trade, but keep numeric fields so the API/dashboard don't break
+            signal.entry_price = entry_price
+            signal.stop_loss = entry_price
+            signal.take_profit = entry_price
+            signal.risk_pips = 0.0
+            signal.profit_pips = 0.0
+            signal.risk_reward_ratio = 0.0
+            signal.position_size_micro_lots = 0.0
+            signal.trading_style = trading_style
+            signal.account_size = self.account_size
+            signal.risk_percentage = self.risk_percentage
             return signal
         
         # Calculate position size in micro lots
