@@ -1,0 +1,203 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>News & Events</title>
+<style>
+  :root {
+    --bg: #0f1419; --card: #182028; --line: #26323d; --text: #e6edf3; --muted: #8b98a5;
+    --bull: #2ecc8f; --bear: #ff5c6c; --neutral: #8b98a5; --warn: #f5b942; --accent: #4da3ff;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text);
+         font: 14px/1.45 system-ui, -apple-system, Segoe UI, Roboto, sans-serif; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 16px; }
+  header { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  h1 { font-size: 18px; margin: 0; }
+  .controls { display: flex; gap: 8px; align-items: center; }
+  select, button { background: var(--card); color: var(--text); border: 1px solid var(--line);
+                   border-radius: 8px; padding: 8px 12px; font: inherit; cursor: pointer; }
+  button:hover, select:hover { border-color: var(--accent); }
+  .badge { font-size: 11px; padding: 2px 8px; border-radius: 99px; border: 1px solid var(--line); color: var(--muted); }
+  .badge.demo { color: var(--warn); border-color: var(--warn); }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
+  .card h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0 0 10px; }
+  .full { grid-column: 1 / -1; }
+  .caution { display: none; border-color: var(--warn); background: rgba(245,185,66,.1); }
+  .caution.on { display: block; }
+  .caution strong { color: var(--warn); }
+  .gauge { position: relative; height: 10px; border-radius: 99px; margin: 14px 0 8px;
+           background: linear-gradient(90deg, var(--bear), var(--neutral) 50%, var(--bull)); }
+  .gauge .pin { position: absolute; top: -5px; width: 4px; height: 20px; background: #fff; border-radius: 2px;
+                transform: translateX(-50%); transition: left .4s; }
+  .scale { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); }
+  .big { font-size: 26px; font-weight: 700; }
+  .bullish { color: var(--bull); } .bearish { color: var(--bear); } .neutral { color: var(--neutral); }
+  .chips { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+  .chip { font-size: 12px; padding: 3px 10px; border-radius: 99px; background: var(--bg); border: 1px solid var(--line); }
+  ul { list-style: none; margin: 0; padding: 0; }
+  li { padding: 10px 0; border-top: 1px solid var(--line); }
+  li:first-child { border-top: 0; padding-top: 0; }
+  .row { display: flex; justify-content: space-between; gap: 10px; align-items: baseline; }
+  .meta { font-size: 12px; color: var(--muted); }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+  .dot.high { background: var(--bear); } .dot.medium { background: var(--warn); }
+  a { color: var(--text); text-decoration: none; } a:hover { color: var(--accent); }
+  .tag { font-size: 11px; padding: 1px 7px; border-radius: 99px; border: 1px solid currentColor; white-space: nowrap; }
+  .empty { color: var(--muted); padding: 8px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>News &amp; Events <span id="mode" class="badge"></span></h1>
+    <div class="controls">
+      <select id="symbol">
+        <option>EURUSD</option><option>GBPUSD</option><option>USDJPY</option><option>XAUUSD</option>
+      </select>
+      <button id="refresh">Refresh</button>
+    </div>
+  </header>
+
+  <div id="caution" class="card caution" style="margin-bottom:14px">
+    <strong>Trade caution:</strong> <span id="cautionText"></span>
+    <div class="meta">High-impact event nearby. Spreads and volatility can spike, so consider waiting.</div>
+  </div>
+
+  <div class="grid">
+    <section class="card">
+      <h2>News sentiment</h2>
+      <div class="big" id="label">-</div>
+      <div class="meta" id="coverage" style="margin-top:6px"></div>
+      <div class="gauge"><div class="pin" id="pin" style="left:50%"></div></div>
+      <div class="scale"><span>Bearish</span><span>Neutral</span><span>Bullish</span></div>
+      <div class="chips" id="chips"></div>
+      <div class="meta" style="margin-top:12px">Indicative only. Based on keyword scoring of headlines, not validated against price moves.</div>
+    </section>
+
+    <section class="card">
+      <h2>Upcoming events</h2>
+      <ul id="events"></ul>
+    </section>
+
+    <section class="card full">
+      <h2>Latest headlines</h2>
+      <ul id="headlines"></ul>
+    </section>
+  </div>
+</div>
+
+<script>
+// Point this at your Render backend.
+const API_BASE = "https://trading-api-xrz6.onrender.com";
+
+const $ = id => document.getElementById(id);
+
+function fmtTime(iso) {
+  return new Date(iso).toLocaleString([], { weekday: "short", hour: "2-digit", minute: "2-digit" });
+}
+function ago(iso) {
+  const m = Math.round((Date.now() - new Date(iso)) / 60000);
+  if (m < 1) return "just now";
+  if (m < 60) return m + "m ago";
+  if (m < 1440) return Math.round(m / 60) + "h ago";
+  return Math.round(m / 1440) + "d ago";
+}
+function until(iso) {
+  const m = Math.round((new Date(iso) - Date.now()) / 60000);
+  if (m < -1) return "released";
+  if (m <= 1) return "now";
+  if (m < 60) return "in " + m + "m";
+  if (m < 1440) return "in " + Math.round(m / 60) + "h";
+  return "in " + Math.round(m / 1440) + "d";
+}
+function sentClass(s) { return s >= 0.15 ? "bullish" : s <= -0.15 ? "bearish" : "neutral"; }
+function sentWord(s) { return s >= 0.15 ? "Bullish" : s <= -0.15 ? "Bearish" : "Neutral"; }
+function esc(s) { const d = document.createElement("div"); d.textContent = s ?? ""; return d.innerHTML; }
+
+function render(d, demo) {
+  const m = $("mode");
+  m.textContent = demo ? "Demo data" : "Live";
+  m.className = "badge" + (demo ? " demo" : "");
+
+  const s = d.sentiment;
+  $("label").textContent = sentWord(s.score);
+  $("label").className = "big " + sentClass(s.score);
+  $("pin").style.left = ((s.score + 1) / 2 * 100) + "%";
+  const cov = d.coverage || { level: "full", missing: [] };
+  const covEl = $("coverage");
+  if (cov.level === "none") {
+    covEl.textContent = "No headlines for this instrument right now. Reading is not meaningful.";
+    covEl.className = "meta bearish";
+  } else if (cov.level === "partial") {
+    covEl.textContent = "Partial coverage: no recent headlines for " + cov.missing.join(", ") + ". This reading reflects one side only.";
+    covEl.className = "meta";
+    covEl.style.color = "var(--warn)";
+  } else {
+    covEl.textContent = "Coverage: both currencies have recent headlines.";
+    covEl.className = "meta";
+    covEl.style.color = "";
+  }
+  $("chips").innerHTML = Object.entries(s.by_currency || {})
+    .map(([c, v]) => `<span class="chip">${c}: <span class="${sentClass(v)}">${v > 0 ? "+" : ""}${v.toFixed(2)}</span></span>`)
+    .join("") || '<span class="meta">No sentiment data yet</span>';
+
+  $("caution").classList.toggle("on", !!d.caution?.active);
+  $("cautionText").textContent = d.caution?.reason || "";
+
+  $("events").innerHTML = d.events?.length
+    ? d.events.map(e => `<li>
+        <div class="row"><span><span class="dot ${e.impact}"></span>${esc(e.currency)} ${esc(e.title)}</span>
+        <span class="meta">${until(e.time)}</span></div>
+        <div class="meta">${fmtTime(e.time)} · forecast ${esc(e.forecast) || "-"} · previous ${esc(e.previous) || "-"}</div>
+      </li>`).join("")
+    : '<li class="empty">No high or medium impact events in the next 3 days.</li>';
+
+  $("headlines").innerHTML = d.headlines?.length
+    ? d.headlines.map(h => `<li>
+        <div class="row"><a href="${esc(h.url)}" target="_blank" rel="noopener">${esc(h.title)}</a>
+        <span class="tag ${sentClass(h.sentiment)}">${sentWord(h.sentiment)}</span></div>
+        <div class="meta">${esc(h.source)} · ${esc(h.currency)} · ${ago(h.time)}</div>
+      </li>`).join("")
+    : '<li class="empty">No headlines available right now.</li>';
+}
+
+function demoData(symbol) {
+  const now = Date.now(), iso = ms => new Date(now + ms).toISOString();
+  return {
+    symbol,
+    sentiment: { score: 0.22, label: "bullish", by_currency: { EUR: 0.18, USD: -0.04 } },
+    coverage: { level: "full", missing: [] },
+    caution: { active: true, reason: "USD Core PCE Price Index at 15:30 UTC" },
+    events: [
+      { title: "Core PCE Price Index m/m", currency: "USD", impact: "high", time: iso(35 * 60000), forecast: "0.3%", previous: "0.2%" },
+      { title: "German Prelim CPI m/m", currency: "EUR", impact: "medium", time: iso(26 * 3600000), forecast: "0.2%", previous: "0.1%" },
+    ],
+    headlines: [
+      { title: "Sample headline: euro edges higher as traders weigh rate outlook", source: "Demo", url: "#", time: iso(-25 * 60000), currency: "EUR", sentiment: 0.3 },
+      { title: "Sample headline: dollar slips ahead of inflation data", source: "Demo", url: "#", time: iso(-80 * 60000), currency: "USD", sentiment: -0.2 },
+    ],
+  };
+}
+
+async function load() {
+  const symbol = $("symbol").value;
+  try {
+    const r = await fetch(`${API_BASE}/api/news?symbol=${symbol}`);
+    if (!r.ok) throw new Error(r.status);
+    render(await r.json(), false);
+  } catch (e) {
+    render(demoData(symbol), true);   // fall back so the layout is always visible
+  }
+}
+
+$("symbol").addEventListener("change", load);
+$("refresh").addEventListener("click", load);
+load();
+setInterval(load, 5 * 60 * 1000);
+</script>
+</body>
+</html>

@@ -3,17 +3,20 @@ from flask_cors import CORS
 
 def create_app():
     app = Flask(__name__)
-    
+
     # Enable CORS
     CORS(app, resources={r"/api/*": {"origins": "*"}})
-    
+
     @app.get("/health")
     def health():
         return {"status": "ok"}
-    
+
     from app.routes.analysis import register_analysis_routes
     register_analysis_routes(app)
-    
+
+    from app.routes.news import news_bp
+    app.register_blueprint(news_bp)
+
     return app
 
 app = create_app()

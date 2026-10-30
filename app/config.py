@@ -8,9 +8,10 @@ class Config:
     DEBUG = False
     TESTING = False
     
-    # Alpha Vantage API
+    #  API KEYS
     ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY")
     ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
+    FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
     
     # Forex pairs to track
     FOREX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY"]
