@@ -41,13 +41,13 @@ def get_trading_styles():
     """Get all available trading styles"""
     risk_engine = RiskEngine()
     styles = risk_engine.get_all_trading_styles()
-    
+
     response = jsonify({
         'trading_styles': styles,
         'default_style': 'day_trading',
         'timestamp': datetime.now().isoformat()
     })
-    
+
     # Clean up memory
     gc.collect()
     return response, 200
@@ -58,20 +58,20 @@ def get_trading_style_info(style):
     """Get information about a specific trading style"""
     risk_engine = RiskEngine()
     style_info = risk_engine.get_trading_style_info(style)
-    
+
     if not style_info:
         gc.collect()
         return jsonify({
             'error': f'Trading style "{style}" not found',
             'available_styles': ['scalping', 'day_trading', 'swing_trading', 'position_trading']
         }), 404
-    
+
     response = jsonify({
         'style': style,
         'details': style_info,
         'timestamp': datetime.now().isoformat()
     })
-    
+
     gc.collect()
     return response, 200
 
@@ -83,14 +83,14 @@ def get_trading_style_info(style):
 @analysis_bp.route('/signals/<string:pair>/<string:timeframe>', methods=['GET'])
 def get_signal(pair, timeframe):
     """
-    Get trading signal for a forex pair (OPTIMIZED - less memory)
-    
+    Get trading signal for an instrument (forex pair or gold)
+
     Query Parameters:
         trading_style: One of ['scalping', 'day_trading', 'swing_trading', 'position_trading']
         account_size: Account size in USD (default: 10000)
         risk_percentage: Risk per trade as percentage (default: 2.0)
     """
-    
+
     try:
         # Get query parameters
         trading_style = request.args.get('trading_style', 'day_trading').lower()
@@ -98,15 +98,15 @@ def get_signal(pair, timeframe):
             account_size = float(request.args.get('account_size', Config.DEFAULT_ACCOUNT_SIZE))
         except ValueError:
             account_size = Config.DEFAULT_ACCOUNT_SIZE
-        
+
         try:
             risk_percentage = float(request.args.get('risk_percentage', Config.DEFAULT_RISK_PERCENTAGE))
         except ValueError:
             risk_percentage = Config.DEFAULT_RISK_PERCENTAGE
-        
+
         # Validate inputs
         pair = pair.upper()
-        
+
         # Convert TradingView timeframe to yfinance format
         yf_timeframe = Config.resolve_timeframe(timeframe)
         if not yf_timeframe:
@@ -115,7 +115,7 @@ def get_signal(pair, timeframe):
                 'error': f'Invalid timeframe: {timeframe}',
                 'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys())
             }), 400
-        
+
         # Validate trading style
         if trading_style not in Config.TRADING_STYLES:
             gc.collect()
@@ -123,25 +123,25 @@ def get_signal(pair, timeframe):
                 'error': f'Invalid trading style: {trading_style}',
                 'supported_styles': list(Config.TRADING_STYLES.keys())
             }), 400
-        
+
         # Fetch data (OPTIMIZED: 250 candles, not 714)
         candles = fetcher.get_intraday_data(pair, yf_timeframe, limit=250)
-        
+
         # Analyze indicators
         indicators = analyzer.analyze(candles)
-        
+
         # Generate signal
         signal = engine.generate_signal(candles, indicators, pair, timeframe)
-        
+
         # Create risk engine with user parameters
         risk_engine = RiskEngine(account_size=account_size, risk_percentage=risk_percentage)
-        
-        # Calculate risk with trading style
-        signal = risk_engine.calculate_risk(signal, candles, indicators.atr, trading_style=trading_style)
-        
+
+        # Calculate risk with trading style and instrument rules
+        signal = risk_engine.calculate_risk(signal, candles, indicators.atr, trading_style=trading_style, symbol=pair)
+
         # Check if trade is valid
         is_valid = risk_engine.validate_trade(signal)
-        
+
         # Build response
         response = {
             'pair': pair,
@@ -169,13 +169,13 @@ def get_signal(pair, timeframe):
                 'valid': is_valid,
             }
         }
-        
+
         # Clean up memory before returning
         del candles, indicators, signal, risk_engine
         gc.collect()
-        
+
         return jsonify(response), 200
-    
+
     except ValueError as e:
         gc.collect()
         return jsonify({'error': str(e), 'pair': pair, 'timeframe': timeframe}), 400
@@ -191,9 +191,9 @@ def get_signal(pair, timeframe):
 @analysis_bp.route('/analysis/<string:pair>/<string:timeframe>', methods=['GET'])
 def get_analysis(pair, timeframe):
     """
-    Get complete analysis (OPTIMIZED - less memory)
+    Get complete analysis for an instrument (forex pair or gold)
     """
-    
+
     try:
         # Get query parameters
         trading_style = request.args.get('trading_style', 'day_trading').lower()
@@ -201,15 +201,15 @@ def get_analysis(pair, timeframe):
             account_size = float(request.args.get('account_size', Config.DEFAULT_ACCOUNT_SIZE))
         except ValueError:
             account_size = Config.DEFAULT_ACCOUNT_SIZE
-        
+
         try:
             risk_percentage = float(request.args.get('risk_percentage', Config.DEFAULT_RISK_PERCENTAGE))
         except ValueError:
             risk_percentage = Config.DEFAULT_RISK_PERCENTAGE
-        
+
         # Validate inputs
         pair = pair.upper()
-        
+
         # Convert TradingView timeframe to yfinance format
         yf_timeframe = Config.resolve_timeframe(timeframe)
         if not yf_timeframe:
@@ -218,7 +218,7 @@ def get_analysis(pair, timeframe):
                 'error': f'Invalid timeframe: {timeframe}',
                 'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys())
             }), 400
-        
+
         # Validate trading style
         if trading_style not in Config.TRADING_STYLES:
             gc.collect()
@@ -226,25 +226,25 @@ def get_analysis(pair, timeframe):
                 'error': f'Invalid trading style: {trading_style}',
                 'supported_styles': list(Config.TRADING_STYLES.keys())
             }), 400
-        
+
         # Fetch data (OPTIMIZED: 250 candles)
         candles = fetcher.get_intraday_data(pair, yf_timeframe, limit=250)
-        
+
         # Analyze indicators
         indicators = analyzer.analyze(candles)
-        
+
         # Generate signal
         signal = engine.generate_signal(candles, indicators, pair, timeframe)
-        
+
         # Create risk engine with user parameters
         risk_engine = RiskEngine(account_size=account_size, risk_percentage=risk_percentage)
-        
-        # Calculate risk with trading style
-        signal = risk_engine.calculate_risk(signal, candles, indicators.atr, trading_style=trading_style)
-        
+
+        # Calculate risk with trading style and instrument rules
+        signal = risk_engine.calculate_risk(signal, candles, indicators.atr, trading_style=trading_style, symbol=pair)
+
         # Check validity
         is_valid = risk_engine.validate_trade(signal)
-        
+
         # Build comprehensive response
         response = {
             'pair': pair,
@@ -284,20 +284,20 @@ def get_analysis(pair, timeframe):
                 'profit_pips': round(signal.profit_pips, 1),
                 'risk_reward_ratio': round(signal.risk_reward_ratio, 2),
                 'position_size_micro_lots': round(signal.position_size_micro_lots, 2),
-                'position_size_standard_lots': round(signal.position_size_micro_lots / 1000, 3),
+                'position_size_standard_lots': round(signal.position_size_micro_lots / 100, 3),
             },
             'trade_validity': {
                 'valid': is_valid,
                 'message': 'Trade meets all quality criteria' if is_valid else 'Trade does not meet minimum standards'
             }
         }
-        
+
         # Clean up memory before returning
         del candles, indicators, signal, risk_engine
         gc.collect()
-        
+
         return jsonify(response), 200
-    
+
     except Exception as e:
         gc.collect()
         return jsonify({'error': f'Error analyzing pair: {str(e)}'}), 500
@@ -309,8 +309,8 @@ def get_analysis(pair, timeframe):
 
 @analysis_bp.route('/pairs', methods=['GET'])
 def get_pairs():
-    """Get list of supported forex pairs and timeframes"""
-    
+    """Get list of supported instruments and timeframes"""
+
     response = jsonify({
         'supported_pairs': Config.FOREX_PAIRS,
         'supported_timeframes': list(Config.TIMEFRAME_MAPPING.keys()),
@@ -319,7 +319,7 @@ def get_pairs():
         'default_risk_percentage': Config.DEFAULT_RISK_PERCENTAGE,
         'optimization': 'Using 250 candles per request (optimized for free tier)',
     })
-    
+
     gc.collect()
     return response, 200
 

@@ -1,10 +1,11 @@
 """
-Data Fetcher Service - Fetches forex price data from yfinance
+Data Fetcher Service - Fetches forex and gold price data from yfinance
 """
 
 import yfinance as yf
 import pandas as pd
 from app.models.candle import Candle
+from app.instruments import INSTRUMENTS
 
 
 OHLCV_COLUMNS = ["Open", "High", "Low", "Close", "Volume"]
@@ -40,7 +41,9 @@ class DataFetcher:
     def get_intraday_data(self, symbol, timeframe, limit=250):
         """Fetch intraday candle data"""
         try:
-            yf_symbol = f"{symbol}=X"
+            # Ticker comes from app/instruments.py (e.g. XAUUSD -> GC=F).
+            # Anything not listed there falls back to the forex pattern, e.g. EURUSD=X.
+            yf_symbol = INSTRUMENTS.get(symbol, {}).get("ticker", f"{symbol}=X")
             source_interval = RESAMPLED_INTERVALS.get(timeframe, timeframe)
             period = INTERVAL_PERIODS.get(source_interval, "1mo")
 

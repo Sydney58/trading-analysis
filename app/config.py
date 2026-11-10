@@ -14,7 +14,7 @@ class Config:
     FINNHUB_API_KEY = os.getenv("FINNHUB_API_KEY", "")
     
     # Forex pairs to track
-    FOREX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY"]
+    FOREX_PAIRS = ["EURUSD", "GBPUSD", "USDJPY", "XAUUSD"]
     
     # Technical Analysis Settings
     RSI_PERIOD = 14
